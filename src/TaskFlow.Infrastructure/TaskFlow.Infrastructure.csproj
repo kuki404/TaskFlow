@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\TaskFlow.Domain\TaskFlow.Domain.csproj" />
+    <ProjectReference Include="..\TaskFlow.Application\TaskFlow.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Needed for IHttpContextAccessor (CurrentTenantProvider) and IHubContext&lt;BoardHub&gt;
+         (SignalR broadcast on card writes) — neither ships in the plain SDK's implicit refs. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Hybrid" />
+    <!-- Configuration.*/Hosting.Abstractions/UserSecrets are all provided transitively via the
+         FrameworkReference above now that this project needs ASP.NET Core types (see
+         TaskFlowDbContextFactory, which calls AddUserSecrets at design time). -->
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- Same UserSecretsId as TaskFlow.Api on purpose: the EF Core design-time factory below
+         reads the SQL password from the same local secrets store the running app uses. -->
+    <UserSecretsId>7c9c1c3e-2b4d-4c9e-9d3a-2a6f9c9a6f01</UserSecretsId>
+  </PropertyGroup>
+
+</Project>

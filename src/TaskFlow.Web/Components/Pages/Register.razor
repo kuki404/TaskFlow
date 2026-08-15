@@ -1,0 +1,48 @@
+@page "/register"
+@layout Layout.MainLayout
+@using TaskFlow.Application.Dtos
+@inject TaskFlowApiClient ApiClient
+@inject NavigationManager Navigation
+
+<PageTitle>Register - TaskFlow</PageTitle>
+
+<MudText Typo="Typo.h4" GutterBottom="true">Create your organization</MudText>
+
+<MudPaper Class="pa-4" Elevation="2" Style="max-width:480px">
+    <MudTextField T="string" Label="Organization name" @bind-Value="tenantName" Required="true" />
+    <MudTextField T="string" Label="Your name" @bind-Value="displayName" Required="true" Class="mt-2" />
+    <MudTextField T="string" Label="Email" @bind-Value="email" Required="true" InputType="InputType.Email" Class="mt-2" />
+    <MudTextField T="string" Label="Password" @bind-Value="password" Required="true" InputType="InputType.Password" Class="mt-2" HelperText="At least 8 characters." />
+    @if (error is not null)
+    {
+        <MudAlert Severity="Severity.Error" Class="mt-3">@error</MudAlert>
+    }
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Class="mt-4" OnClick="RegisterAsync" Disabled="loading">
+        Create account
+    </MudButton>
+</MudPaper>
+
+@code {
+    private string tenantName = string.Empty;
+    private string displayName = string.Empty;
+    private string email = string.Empty;
+    private string password = string.Empty;
+    private string? error;
+    private bool loading;
+
+    private async Task RegisterAsync()
+    {
+        loading = true;
+        error = null;
+        var (success, err) = await ApiClient.RegisterAsync(new RegisterRequest(email, password, displayName, tenantName));
+        loading = false;
+        if (success)
+        {
+            Navigation.NavigateTo("/", forceLoad: true);
+        }
+        else
+        {
+            error = err;
+        }
+    }
+}

@@ -1,0 +1,160 @@
+@page "/boards/{BoardId:guid}"
+@attribute [Authorize]
+@using TaskFlow.Application.Dtos
+@using Microsoft.AspNetCore.SignalR.Client
+@inject TaskFlowApiClient ApiClient
+@inject IJSRuntime JsRuntime
+@inject ISnackbar Snackbar
+@inject IConfiguration Configuration
+@implements IAsyncDisposable
+
+<PageTitle>@(board?.ProjectName ?? "Board") - TaskFlow</PageTitle>
+
+@if (board is null)
+{
+    <MudSkeleton Width="100%" Height="60px" Class="mb-3" />
+    <MudSkeleton Width="100%" Height="400px" />
+}
+else
+{
+    <MudText Typo="Typo.h4" GutterBottom="true">@board.ProjectName</MudText>
+
+    <div style="display:flex; gap:16px; overflow-x:auto; padding-bottom:8px;">
+        @foreach (var list in board.CardLists.OrderBy(l => l.Position))
+        {
+            <MudPaper Class="pa-3" Style="min-width:280px; max-width:280px;" Elevation="1">
+                <MudText Typo="Typo.subtitle1" Class="mb-2">@list.Name</MudText>
+
+                @foreach (var card in list.Cards.OrderBy(c => c.Position))
+                {
+                    <MudCard Class="mb-2" draggable="true"
+                             @ondragstart="@(() => draggingCardId = card.Id)">
+                        <MudCardContent Class="pa-2">
+                            <MudText Typo="Typo.body1">@card.Title</MudText>
+                            <MudChip T="string" Size="Size.Small" Color="@PriorityColor(card.Priority)">@card.Priority</MudChip>
+                            @if (card.AssignedUserDisplayName is not null)
+                            {
+                                <MudText Typo="Typo.caption" Class="d-block mt-1">@card.AssignedUserDisplayName</MudText>
+                            }
+                        </MudCardContent>
+                    </MudCard>
+                }
+
+                <div style="min-height:40px;" @ondragover="@(e => { })" @ondragover:preventDefault="true"
+                     @ondrop="@(() => OnDropAsync(list.Id))">
+                    <MudButton FullWidth="true" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Add" OnClick="@(() => AddCardAsync(list.Id))">
+                        Add card
+                    </MudButton>
+                </div>
+            </MudPaper>
+        }
+    </div>
+
+    @if (conflictMessage is not null)
+    {
+        <MudAlert Severity="Severity.Warning" Class="mt-3" CloseIcon="@Icons.Material.Filled.Close" ShowCloseIcon="true" CloseIconClicked="@(() => conflictMessage = null)">
+            @conflictMessage
+        </MudAlert>
+    }
+}
+
+@code {
+    [Parameter] public Guid BoardId { get; set; }
+
+    private BoardDto? board;
+    private Guid? draggingCardId;
+    private string? conflictMessage;
+    private HubConnection? hub;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        await ConnectHubAsync();
+    }
+
+    private async Task LoadAsync() => board = await ApiClient.GetBoardAsync(BoardId);
+
+    private async Task ConnectHubAsync()
+    {
+        var token = ApiClient.CurrentAccessToken;
+        if (token is null)
+        {
+            return;
+        }
+
+        hub = new HubConnectionBuilder()
+            .WithUrl($"{ApiBaseUrl}/hubs/board", options => options.AccessTokenProvider = () => Task.FromResult<string?>(token))
+            .WithAutomaticReconnect()
+            .Build();
+
+        // Any card/list mutation on this board (by anyone) triggers a full reload — simple and
+        // correct; a production app might instead apply the specific delta, but a full board is
+        // small enough that the extra round trip is not worth the added complexity here.
+        hub.On<string>("BoardChanged", async _ =>
+        {
+            await LoadAsync();
+            await InvokeAsync(StateHasChanged);
+        });
+
+        try
+        {
+            await hub.StartAsync();
+            await hub.InvokeAsync("JoinBoardAsync", BoardId);
+        }
+        catch
+        {
+            // Live updates are a nice-to-have; the board still works via manual reload/actions if
+            // the SignalR connection can't be established (e.g. during tests).
+        }
+    }
+
+    private string ApiBaseUrl => Configuration["Api:BaseUrl"] ?? "http://localhost:5099";
+
+    private async Task AddCardAsync(Guid cardListId)
+    {
+        await ApiClient.CreateCardAsync(BoardId, new CreateCardRequest(cardListId, "New card", null, TaskFlow.Domain.Enums.CardPriority.Medium, null, null));
+        await LoadAsync();
+    }
+
+    private async Task OnDropAsync(Guid targetListId)
+    {
+        if (draggingCardId is not { } cardId)
+        {
+            return;
+        }
+
+        var card = board?.CardLists.SelectMany(l => l.Cards).FirstOrDefault(c => c.Id == cardId);
+        if (card is null)
+        {
+            return;
+        }
+
+        var (updated, error) = await ApiClient.MoveCardAsync(BoardId, cardId, new MoveCardRequest(targetListId, 0, card.RowVersion));
+        if (updated is null)
+        {
+            // A RowVersion mismatch (someone else moved/edited the card first) surfaces here as a
+            // typed conflict from the API — shown to the user instead of silently failing.
+            conflictMessage = error ?? "Could not move the card.";
+            Snackbar.Add(conflictMessage, Severity.Warning);
+        }
+
+        await LoadAsync();
+        draggingCardId = null;
+    }
+
+    private static Color PriorityColor(TaskFlow.Domain.Enums.CardPriority priority) => priority switch
+    {
+        TaskFlow.Domain.Enums.CardPriority.Urgent => Color.Error,
+        TaskFlow.Domain.Enums.CardPriority.High => Color.Warning,
+        TaskFlow.Domain.Enums.CardPriority.Medium => Color.Info,
+        _ => Color.Default
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        if (hub is not null)
+        {
+            await hub.DisposeAsync();
+        }
+    }
+}

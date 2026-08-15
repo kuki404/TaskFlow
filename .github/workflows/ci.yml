@@ -1,0 +1,79 @@
+name: CI
+
+# Manual-only (workflow_dispatch), not "push"/"pull_request" — this pipeline needs two secrets
+# (MSSQL_SA_PASSWORD, JWT_SECRET) that are NOT set in this template repo. Wiring it into an
+# automatic trigger before those secrets exist would just fail on every push. See "Activating CI"
+# in README.md for the two-step setup: add the repo secrets, then flip the trigger below.
+on:
+  workflow_dispatch:
+  # push:
+  #   branches: [main]
+  # pull_request:
+  #   branches: [main]
+
+env:
+  DOTNET_VERSION: "10.0.302"
+  DB_NAME: TaskFlow_CI
+
+jobs:
+  # Fails fast with a readable message instead of a confusing downstream failure if the two
+  # required repo secrets were never configured (Settings -> Secrets and variables -> Actions).
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify required secrets are configured
+        run: |
+          missing=0
+          if [ -z "${{ secrets.MSSQL_SA_PASSWORD }}" ]; then
+            echo "::error::Repo secret MSSQL_SA_PASSWORD is not set. Add it under Settings -> Secrets and variables -> Actions."
+            missing=1
+          fi
+          if [ -z "${{ secrets.JWT_SECRET }}" ]; then
+            echo "::error::Repo secret JWT_SECRET is not set (must be >= 32 characters). Add it under Settings -> Secrets and variables -> Actions."
+            missing=1
+          fi
+          if [ "$missing" -eq 1 ]; then
+            exit 1
+          fi
+          echo "All required secrets are present."
+
+  build-and-test:
+    needs: preflight
+    runs-on: ubuntu-latest
+
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2025-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: ${{ secrets.MSSQL_SA_PASSWORD }}
+          MSSQL_PID: Developer
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1' || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+          --health-start-period 30s
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET ${{ env.DOTNET_VERSION }}
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore
+        run: dotnet restore TaskFlow.slnx
+
+      - name: Build (Release, warnings as errors)
+        run: dotnet build TaskFlow.slnx -c Release --no-restore
+
+      - name: Test
+        env:
+          Sql__Password: ${{ secrets.MSSQL_SA_PASSWORD }}
+          Sql__Database: ${{ env.DB_NAME }}
+          Jwt__Secret: ${{ secrets.JWT_SECRET }}
+        run: dotnet test TaskFlow.slnx -c Release --no-build --logger "console;verbosity=normal"

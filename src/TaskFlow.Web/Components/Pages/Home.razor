@@ -1,0 +1,73 @@
+@page "/"
+@attribute [Authorize]
+@using TaskFlow.Application.Common
+@using TaskFlow.Application.Dtos
+@inject TaskFlowApiClient ApiClient
+@inject NavigationManager Navigation
+
+<PageTitle>Projects - TaskFlow</PageTitle>
+
+<MudText Typo="Typo.h4" GutterBottom="true">Your projects</MudText>
+
+<MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mb-4" OnClick="@(() => showCreate = true)">
+    New project
+</MudButton>
+
+@if (showCreate)
+{
+    <MudPaper Class="pa-4 mb-4" Elevation="2">
+        <MudTextField T="string" Label="Project name" @bind-Value="newProjectName" Required="true" />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-2 mr-2" OnClick="CreateProjectAsync">Create</MudButton>
+        <MudButton Variant="Variant.Text" Class="mt-2" OnClick="@(() => showCreate = false)">Cancel</MudButton>
+    </MudPaper>
+}
+
+@if (projects is null)
+{
+    <MudSkeleton Width="100%" Height="120px" Class="mb-2" />
+    <MudSkeleton Width="100%" Height="120px" />
+}
+else if (projects.Items.Count == 0)
+{
+    <MudAlert Severity="Severity.Info">No projects yet — create your first one above.</MudAlert>
+}
+else
+{
+    <MudGrid>
+        @foreach (var project in projects.Items)
+        {
+            <MudItem xs="12" md="4">
+                <MudCard>
+                    <MudCardContent>
+                        <MudText Typo="Typo.h6">@project.Name</MudText>
+                        <MudText Typo="Typo.body2" Class="mud-text-secondary">@project.MemberCount member(s)</MudText>
+                    </MudCardContent>
+                    <MudCardActions>
+                        <MudButton Color="Color.Primary" OnClick="@(() => Navigation.NavigateTo($"/boards/{project.BoardId}"))">Open board</MudButton>
+                    </MudCardActions>
+                </MudCard>
+            </MudItem>
+        }
+    </MudGrid>
+}
+
+@code {
+    private PagedResult<ProjectDto>? projects;
+    private bool showCreate;
+    private string newProjectName = string.Empty;
+
+    protected override async Task OnInitializedAsync() => projects = await ApiClient.GetProjectsAsync();
+
+    private async Task CreateProjectAsync()
+    {
+        if (string.IsNullOrWhiteSpace(newProjectName))
+        {
+            return;
+        }
+
+        await ApiClient.CreateProjectAsync(new CreateProjectRequest(newProjectName));
+        newProjectName = string.Empty;
+        showCreate = false;
+        projects = await ApiClient.GetProjectsAsync();
+    }
+}

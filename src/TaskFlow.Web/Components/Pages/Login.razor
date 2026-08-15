@@ -1,0 +1,86 @@
+@page "/login"
+@layout Layout.MainLayout
+@using TaskFlow.Application.Dtos
+@inject TaskFlowApiClient ApiClient
+@inject NavigationManager Navigation
+
+<PageTitle>Log in - TaskFlow</PageTitle>
+
+<MudText Typo="Typo.h4" GutterBottom="true">Log in</MudText>
+
+<MudGrid>
+    <MudItem xs="12" md="5">
+        <MudPaper Class="pa-4" Elevation="2">
+            <MudForm @ref="form">
+                <MudTextField T="string" Label="Email" @bind-Value="email" Required="true" InputType="InputType.Email" />
+                <MudTextField T="string" Label="Password" @bind-Value="password" Required="true" InputType="InputType.Password" Class="mt-2" />
+                @if (error is not null)
+                {
+                    <MudAlert Severity="Severity.Error" Class="mt-3">@error</MudAlert>
+                }
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Class="mt-4" OnClick="LoginAsync" Disabled="loading">
+                    Log in
+                </MudButton>
+            </MudForm>
+            <MudText Class="mt-3">No account? <MudLink Href="/register">Register</MudLink></MudText>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" md="7">
+        <MudText Typo="Typo.h6" GutterBottom="true">Try it in 60 seconds</MudText>
+        <MudText Class="mb-2">Two demo tenants, seeded with an Owner and a Member — click any button to jump straight into a live board, no typing required.</MudText>
+        @foreach (var demo in demoLogins)
+        {
+            <MudButton Variant="Variant.Outlined" FullWidth="true" Class="mb-2" OnClick="@(() => LoginAsDemoAsync(demo.Email))" Disabled="loading">
+                @demo.Label
+            </MudButton>
+        }
+    </MudItem>
+</MudGrid>
+
+@code {
+    private MudForm form = default!;
+    private string email = string.Empty;
+    private string password = string.Empty;
+    private string? error;
+    private bool loading;
+
+    private static readonly (string Label, string Email)[] demoLogins =
+    [
+        ("Demo Owner (Acme Inc)", "owner@acme.local"),
+        ("Demo Member (Acme Inc)", "member@acme.local"),
+        ("Demo Owner (Globex Corp)", "owner@globex.local")
+    ];
+
+    private async Task LoginAsync()
+    {
+        loading = true;
+        error = null;
+        var (success, err) = await ApiClient.LoginAsync(new LoginRequest(email, password));
+        loading = false;
+        if (success)
+        {
+            Navigation.NavigateTo("/", forceLoad: true);
+        }
+        else
+        {
+            error = err;
+        }
+    }
+
+    private async Task LoginAsDemoAsync(string email)
+    {
+        loading = true;
+        error = null;
+        var (success, err) = await ApiClient.LoginAsync(new LoginRequest(email, "Demo123!"));
+        loading = false;
+        if (success)
+        {
+            Navigation.NavigateTo("/", forceLoad: true);
+        }
+        else
+        {
+            error = err;
+        }
+    }
+}

@@ -1,0 +1,80 @@
+# Azure DevOps pipeline — mirrors .github/workflows/ci.yml (same build/test steps), provided as
+# an alternative CI backend for this template. Deliberately not wired to any trigger: it needs a
+# variable group ("taskflow-ci-secrets") with MSSQL_SA_PASSWORD and JWT_SECRET, which does not
+# exist in a fresh Azure DevOps project. See "Activating CI" in README.md.
+trigger: none
+pr: none
+
+pool:
+  vmImage: "ubuntu-latest"
+
+variables:
+  - group: taskflow-ci-secrets # must define: MSSQL_SA_PASSWORD, JWT_SECRET
+  - name: DOTNET_VERSION
+    value: "10.0.302"
+  - name: DB_NAME
+    value: TaskFlow_CI
+
+stages:
+  - stage: Preflight
+    jobs:
+      - job: CheckSecrets
+        steps:
+          - bash: |
+              missing=0
+              if [ -z "$(MSSQL_SA_PASSWORD)" ]; then
+                echo "##vso[task.logissue type=error]Variable group 'taskflow-ci-secrets' is missing MSSQL_SA_PASSWORD."
+                missing=1
+              fi
+              if [ -z "$(JWT_SECRET)" ]; then
+                echo "##vso[task.logissue type=error]Variable group 'taskflow-ci-secrets' is missing JWT_SECRET (must be >= 32 characters)."
+                missing=1
+              fi
+              if [ "$missing" -eq 1 ]; then
+                exit 1
+              fi
+              echo "All required variables are present."
+            displayName: "Verify required secrets are configured"
+
+  - stage: BuildAndTest
+    dependsOn: Preflight
+    jobs:
+      - job: BuildAndTest
+        steps:
+          - task: UseDotNet@2
+            displayName: "Install .NET $(DOTNET_VERSION)"
+            inputs:
+              version: "$(DOTNET_VERSION)"
+
+          - bash: |
+              docker run -d --name sqlserver \
+                -e "ACCEPT_EULA=Y" \
+                -e "MSSQL_SA_PASSWORD=$(MSSQL_SA_PASSWORD)" \
+                -e "MSSQL_PID=Developer" \
+                -p 1433:1433 \
+                mcr.microsoft.com/mssql/server:2025-latest
+
+              echo "Waiting for SQL Server to become healthy..."
+              for i in $(seq 1 30); do
+                if docker exec sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$(MSSQL_SA_PASSWORD)" -C -Q "SELECT 1" > /dev/null 2>&1; then
+                  echo "SQL Server is ready."
+                  exit 0
+                fi
+                sleep 3
+              done
+              echo "##vso[task.logissue type=error]SQL Server did not become ready in time."
+              exit 1
+            displayName: "Start SQL Server container"
+
+          - script: dotnet restore TaskFlow.slnx
+            displayName: "Restore"
+
+          - script: dotnet build TaskFlow.slnx -c Release --no-restore
+            displayName: "Build (Release, warnings as errors)"
+
+          - script: dotnet test TaskFlow.slnx -c Release --no-build --logger "console;verbosity=normal"
+            displayName: "Test"
+            env:
+              Sql__Password: $(MSSQL_SA_PASSWORD)
+              Sql__Database: $(DB_NAME)
+              Jwt__Secret: $(JWT_SECRET)
