@@ -79,15 +79,18 @@ for one tenant can't even confirm another tenant's data exists.
 One hub, `BoardHub` at `/hubs/board`, `[Authorize]`'d. `JoinBoardAsync(boardId)` separately checks
 the caller is a `ProjectMember` of that board's project *before* adding them to the SignalR group
 — a hub method is an endpoint just like a controller action, so group membership alone is not
-authorization. Every card/list mutation (`BoardsController` → `BoardService`) broadcasts a
-`BoardChanged` event to the board's group via `IHubContext<BoardHub>` after a successful save; the
-Blazor client (`Board.razor`) holds one `HubConnection` per board page, reconnects automatically,
-and reloads on any incoming event.
+authorization. Every card/list mutation (`BoardsController` → `BoardService`) broadcasts one of
+seven named events (`ListCreated`, `ListMoved`, `ListDeleted`, `CardCreated`, `CardUpdated`,
+`CardMoved`, `CardDeleted`) to the board's group via `IHubContext<BoardHub>` after a successful
+save. The Blazor client (`Board.razor`) holds one `HubConnection` per board page, subscribes to
+all seven, reconnects automatically, and reloads the whole board on any of them — the payload is
+ignored; a full reload is simpler than reconciling a partial delta and the board is small enough
+that the extra round trip doesn't matter.
 
-Verified live: moving a card via `PUT /api/boards/{id}/cards/{id}/move` and re-fetching the board
-confirms the move landed (see [EF Core & performance](#ef-core--performance) for the exact SQL);
-the same request over a second authenticated connection to the hub receives the `BoardChanged`
-broadcast in real time.
+Verified live with a real second SignalR connection (not just the REST response): moved a card via
+`PUT /api/boards/{id}/cards/{id}/move` while a separate authenticated `HubConnection` sat joined to
+the board's group — that connection received the `CardMoved` event, with the moved card's DTO as
+its payload, within the same request.
 
 ## Security
 
@@ -139,7 +142,7 @@ broadcast in real time.
   Two concurrent edits/moves of the same card race; the loser gets
   `DbUpdateConcurrencyException`, caught in `BoardService` and returned as a typed `Conflict`
   result → **409**, surfaced in the Blazor board as "changed by someone else, reload" instead of a
-  crash or a silent overwrite. Proven in `ConcurrencyAndPaginationTests.TwoConcurrentCardUpdates_SecondOneConflicts`.
+  crash or a silent overwrite. Proven in `RbacAndConcurrencyTests.ConcurrentCardUpdates_OneSucceedsAndOneReturnsConflict`.
 - **Filtered composite indexes** matching real predicates: `(TenantId, ProjectId)` on `Project`,
   `(BoardId, Position)` on `CardList`, `(CardListId, Position)` on `Card`, a unique
   `(ProjectId, UserId)` on `ProjectMember` (the hottest query in the app — checked on nearly every
@@ -148,8 +151,12 @@ broadcast in real time.
   to benefit from caching and are always read fresh. Tag-invalidated (`board:{id}`) on any list
   create/rename/move/delete.
 - **Server-enforced paging**: `PagedRequest.PageSize` is capped at 100 — `?pageSize=99999` is a
-  `400`, not a truncated response. `AddDbContextPool` reuses `DbContext` instances instead of
-  allocating one per request.
+  `400`, not a truncated response. Uses `AddDbContext` (not the pooled variant) deliberately —
+  `TaskFlowDbContext` takes a scoped `ICurrentTenantProvider` resolved from the request's JWT
+  claim, and pooling a context with a per-request-derived constructor dependency fails DI callsite
+  validation at startup (confirmed while building this: "Cannot resolve scoped service ... from
+  root provider"). Pooling's reuse-across-requests model doesn't fit a dependency that must be
+  different on every request.
 
 ## Frontend
 
@@ -300,3 +307,36 @@ Then uncomment the `push:`/`pull_request:` block at the top of `.github/workflow
   BookIt's own db container if both run simultaneously) — never exposed to the local network.
 - No repository/wrapper hides `IQueryable` anywhere in `Infrastructure/Services` — every service
   method is a real, inspectable LINQ query.
+
+## Bugs found and fixed during real end-to-end verification
+
+Passing `dotnet build`/`dotnet test` proves the C# compiles and the mocked/isolated paths work; it
+does not prove a human can click through the running app. Driving the actual Docker stack in a
+browser surfaced three real defects that no automated test caught, all now fixed:
+
+- **The whole app was non-interactive.** `App.razor`'s `<Routes />` was missing
+  `@rendermode="InteractiveServer"` — every page rendered as static HTML with no live circuit, so
+  every button (login, demo login, drag-and-drop) silently did nothing. `dotnet build` can't catch
+  this; it's valid Razor either way.
+- **Login never actually landed anywhere.** `Login.razor` called
+  `Navigation.NavigateTo("/", forceLoad: true)` on success. `forceLoad` forces a real browser
+  round-trip to a fresh, unauthenticated HTTP request; since the JWT lives in
+  `ProtectedSessionStorage` (read only *inside* an existing circuit) rather than an ASP.NET Core
+  auth cookie, that fresh request hit `[Authorize]` on `Home.razor` and bounced straight back to
+  `/login` — an invisible redirect loop. Dropping `forceLoad` keeps the navigation inside the same
+  circuit, where `CustomAuthStateProvider` already reflects the just-completed login.
+- **The Blazor client listened for an event the server never sends.** `Board.razor` subscribed to
+  a generic `"BoardChanged"` SignalR event; `BoardService` actually broadcasts seven specific ones
+  (`CardMoved`, `CardCreated`, ...). Live-reload on card/list changes never fired. Fixed by
+  subscribing to all seven with the correct argument arity per event.
+- **A server restart could crash any page, not just fail to restore state.** `AuthSession` and
+  `ThemeService` both called `ProtectedBrowserStorage.GetAsync` unguarded. When a container
+  restarts without a persisted Data Protection key ring (the default here — see `.env.example`),
+  browser-stored values from before the restart become undecryptable, and `GetAsync` throws
+  `CryptographicException` instead of returning `Success: false` — an unhandled exception that
+  killed the whole Blazor circuit before the page could even show the login form. Both catch the
+  exception now and treat it as "no stored value," same as a first-time visitor. **This exact gap
+  existed in BookIt too and has been fixed there in the same commit.**
+
+Root-caused each one from server-side logs and a real `HubConnection` test client (not
+speculation) — see `.github` commit history for the fixes.

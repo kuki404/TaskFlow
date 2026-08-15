@@ -90,11 +90,26 @@ else
         // Any card/list mutation on this board (by anyone) triggers a full reload — simple and
         // correct; a production app might instead apply the specific delta, but a full board is
         // small enough that the extra round trip is not worth the added complexity here.
-        hub.On<string>("BoardChanged", async _ =>
+        //
+        // BoardService broadcasts one of these seven named events, never a generic
+        // "BoardChanged" — each subscription below ignores its payload and just reloads. The
+        // SignalR client binds incoming arguments by position and count against the registered
+        // handler's type parameters, so each `On<...>` here must match the argument count
+        // BoardService actually sends for that event name (3 for ListCreated, 2 for ListMoved, 1
+        // for the rest) or the client silently fails to bind the invocation.
+        async Task ReloadAsync()
         {
             await LoadAsync();
             await InvokeAsync(StateHasChanged);
-        });
+        }
+
+        hub.On<Guid, string, int>("ListCreated", (_, _, _) => ReloadAsync());
+        hub.On<Guid, int>("ListMoved", (_, _) => ReloadAsync());
+        hub.On<Guid>("ListDeleted", _ => ReloadAsync());
+        hub.On<object>("CardCreated", _ => ReloadAsync());
+        hub.On<object>("CardUpdated", _ => ReloadAsync());
+        hub.On<object>("CardMoved", _ => ReloadAsync());
+        hub.On<Guid>("CardDeleted", _ => ReloadAsync());
 
         try
         {

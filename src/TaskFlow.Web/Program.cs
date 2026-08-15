@@ -16,9 +16,13 @@ builder.Services.AddMudServices();
 
 // This Web app never signs a cookie in — auth state comes from CustomAuthStateProvider, backed by
 // the JWT the Api issued. A default scheme is still registered because AuthorizeRouteView runs
-// through ASP.NET Core's own authorization middleware during the initial static render.
+// through ASP.NET Core's own authorization middleware during the initial static render, before any
+// Blazor circuit (and so CustomAuthStateProvider's read of ProtectedSessionStorage) can even exist.
+// That first, unauthenticated static request to an [Authorize] page (e.g. "/") gets challenged by
+// this cookie scheme; LoginPath must point at this app's real "/login" route, or ASP.NET Core's
+// default "/Account/Login" 404s before the user ever sees a login page.
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
-    .AddCookie();
+    .AddCookie(options => options.LoginPath = "/login");
 builder.Services.AddAuthorizationCore();
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddScoped<AuthSession>();
