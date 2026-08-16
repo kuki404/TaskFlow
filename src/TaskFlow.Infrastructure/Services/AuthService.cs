@@ -41,7 +41,7 @@ public class AuthService(
             return Result<AuthResponse>.Failure("Could not create an account with the provided details.");
         }
 
-        return Result<AuthResponse>.Success(await IssueTokensAsync(user));
+        return Result<AuthResponse>.Success(await IssueTokensAsync(user, cancellationToken));
     }
 
     public async Task<Result<AuthResponse>> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default)
@@ -67,7 +67,7 @@ public class AuthService(
             return Result<AuthResponse>.Failure("Invalid email or password.");
         }
 
-        return Result<AuthResponse>.Success(await IssueTokensAsync(user));
+        return Result<AuthResponse>.Success(await IssueTokensAsync(user, cancellationToken));
     }
 
     public async Task<Result<AuthResponse>> RefreshAsync(string rawRefreshToken, CancellationToken cancellationToken = default)
@@ -103,7 +103,7 @@ public class AuthService(
             return Result<AuthResponse>.Failure("User no longer exists.", ResultErrorType.NotFound);
         }
 
-        var (response, newTokenEntity) = await IssueTokensWithEntityAsync(user);
+        var (response, newTokenEntity) = await IssueTokensWithEntityAsync(user, cancellationToken);
         storedToken.Revoke(newTokenEntity.Id);
         await db.SaveChangesAsync(cancellationToken);
 
@@ -118,16 +118,18 @@ public class AuthService(
             .ExecuteUpdateAsync(setters => setters.SetProperty(t => t.RevokedAtUtc, DateTime.UtcNow), cancellationToken);
     }
 
-    private async Task<AuthResponse> IssueTokensAsync(ApplicationUser user) => (await IssueTokensWithEntityAsync(user)).Response;
+    private async Task<AuthResponse> IssueTokensAsync(ApplicationUser user, CancellationToken cancellationToken) =>
+        (await IssueTokensWithEntityAsync(user, cancellationToken)).Response;
 
-    private async Task<(AuthResponse Response, RefreshToken Entity)> IssueTokensWithEntityAsync(ApplicationUser user)
+    private async Task<(AuthResponse Response, RefreshToken Entity)> IssueTokensWithEntityAsync(
+        ApplicationUser user, CancellationToken cancellationToken)
     {
         var accessToken = tokenService.CreateAccessToken(new TokenSubject(user.Id, user.TenantId, user.Email!, user.DisplayName));
 
         var (rawRefreshToken, refreshTokenHash) = tokenService.CreateRefreshToken();
         var refreshTokenEntity = RefreshToken.Create(user.Id, refreshTokenHash, RefreshTokenLifetime);
         db.RefreshTokens.Add(refreshTokenEntity);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(cancellationToken);
 
         var response = new AuthResponse(
             accessToken.Value,
