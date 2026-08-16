@@ -26,7 +26,7 @@ public class TaskFlowWebApplicationFactory : WebApplicationFactory<Program>
         // env var already set", because environment variables are added AFTER User Secrets in
         // WebApplicationBuilder's default configuration order and would otherwise silently win
         // and override it.
-        SetIfUnconfigured("Sql:Password", "Sql__Password", Environment.GetEnvironmentVariable("MSSQL_SA_PASSWORD") ?? "TaskFlow_Dev_Pwd#2026");
+        SetIfUnconfigured("Sql:Password", "Sql__Password", Environment.GetEnvironmentVariable("MSSQL_SA_PASSWORD") ?? "ChangeThis123!");
         SetIfUnconfigured("Jwt:Secret", "Jwt__Secret", "local-integration-tests-signing-key-at-least-32-chars-long");
     }
 
