@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
 
 namespace TaskFlow.IntegrationTests;
 
@@ -19,18 +20,29 @@ public class TaskFlowWebApplicationFactory : WebApplicationFactory<Program>
         // a test suite that legitimately registers/logs in many times in a few seconds.
         Environment.SetEnvironmentVariable("RateLimiting__Auth__PermitLimit", "1000");
 
-        // Falls back to the same values used by docker-compose.yml/.env locally — only applied
-        // if the environment (or User Secrets) hasn't already set them, so CI (which sets real
-        // secrets via repo secrets) and a local `dotnet user-secrets set` both still take priority.
-        SetIfUnset("Sql__Password", Environment.GetEnvironmentVariable("MSSQL_SA_PASSWORD") ?? "TaskFlow_Dev_Pwd#2026");
-        SetIfUnset("Jwt__Secret", "local-integration-tests-signing-key-at-least-32-chars-long");
+        // Falls back to the same values used by docker-compose.yml/.env locally — only applied if
+        // User Secrets hasn't already set a real one, so a developer's `dotnet user-secrets set`
+        // still takes priority — checked by actually reading User Secrets here, not just "is the
+        // env var already set", because environment variables are added AFTER User Secrets in
+        // WebApplicationBuilder's default configuration order and would otherwise silently win
+        // and override it.
+        SetIfUnconfigured("Sql:Password", "Sql__Password", Environment.GetEnvironmentVariable("MSSQL_SA_PASSWORD") ?? "TaskFlow_Dev_Pwd#2026");
+        SetIfUnconfigured("Jwt:Secret", "Jwt__Secret", "local-integration-tests-signing-key-at-least-32-chars-long");
     }
 
-    private static void SetIfUnset(string key, string value)
+    private static void SetIfUnconfigured(string configKey, string envKey, string fallbackValue)
     {
-        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable(key)))
+        // An env var here (e.g. a CI-provided real secret) must win outright — respect it as-is
+        // without even probing User Secrets.
+        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable(envKey)))
         {
-            Environment.SetEnvironmentVariable(key, value);
+            return;
+        }
+
+        var userSecrets = new ConfigurationBuilder().AddUserSecrets<Program>(optional: true).Build();
+        if (string.IsNullOrEmpty(userSecrets[configKey]))
+        {
+            Environment.SetEnvironmentVariable(envKey, fallbackValue);
         }
     }
 }
