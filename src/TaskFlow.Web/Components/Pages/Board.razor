@@ -20,6 +20,9 @@ else
 {
     <MudText Typo="Typo.h4" GutterBottom="true">@board.ProjectName</MudText>
 
+    <MudTextField T="string" @bind-Value="searchText" Label="Search cards" Placeholder="Filter by title or description"
+                   Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Immediate="true" Class="mb-3" Style="max-width:400px;" />
+
     <div style="display:flex; gap:16px; overflow-x:auto; padding-bottom:8px;">
         @foreach (var list in board.CardLists.OrderBy(l => l.Position))
         {
@@ -29,12 +32,19 @@ else
                     <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" OnClick="@(() => DeleteListAsync(list))" aria-label="Delete list" />
                 </div>
 
-                @foreach (var card in list.Cards.OrderBy(c => c.Position))
+                @foreach (var card in list.Cards.Where(c => MatchesSearch(c)).OrderBy(c => c.Position))
                 {
                     <MudCard Class="mb-2" draggable="true" @onclick="@(() => EditCardAsync(card))"
-                             @ondragstart="@(() => draggingCardId = card.Id)" Style="cursor:pointer;">
+                             @ondragstart="@(() => draggingCardId = card.Id)"
+                             Style="@($"cursor:pointer;{(IsOverdue(card, list) ? " border: 2px solid var(--mud-palette-error);" : string.Empty)}")">
                         <MudCardContent Class="pa-2">
-                            <MudText Typo="Typo.body1">@card.Title</MudText>
+                            <div style="display:flex; align-items:center; justify-content:space-between;">
+                                <MudText Typo="Typo.body1">@card.Title</MudText>
+                                @if (IsOverdue(card, list))
+                                {
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Error">Overdue</MudChip>
+                                }
+                            </div>
                             <MudChip T="string" Size="Size.Small" Color="@PriorityColor(card.Priority)">@card.Priority</MudChip>
                             @if (card.AssignedUserDisplayName is not null)
                             {
@@ -75,6 +85,7 @@ else
     private Guid? draggingCardId;
     private string? conflictMessage;
     private HubConnection? hub;
+    private string? searchText;
 
     protected override async Task OnInitializedAsync()
     {
@@ -160,6 +171,7 @@ else
             new DialogParameters<TaskFlow.Web.Components.Dialogs.CardEditDialog>
             {
                 { d => d.BoardId, BoardId },
+                { d => d.ProjectId, board!.ProjectId },
                 { d => d.Card, card }
             });
         var result = await dialog.Result;
@@ -235,6 +247,23 @@ else
         await LoadAsync();
         draggingCardId = null;
     }
+
+    private bool MatchesSearch(CardDto card)
+    {
+        if (string.IsNullOrWhiteSpace(searchText))
+        {
+            return true;
+        }
+
+        return card.Title.Contains(searchText, StringComparison.OrdinalIgnoreCase)
+            || (card.Description?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false);
+    }
+
+    // A card counts as overdue only outside a terminal ("Done") list — by naming convention, since
+    // there's no formal terminal-list flag on CardList; every new board seeds a "Done" column
+    // (see Board.Create), so this matches the one concept of "finished" the app already has.
+    private static bool IsOverdue(CardDto card, CardListDto list) =>
+        card.DueDateUtc is not null && card.DueDateUtc < DateTime.UtcNow && !list.Name.Equals("Done", StringComparison.OrdinalIgnoreCase);
 
     private static Color PriorityColor(TaskFlow.Domain.Enums.CardPriority priority) => priority switch
     {

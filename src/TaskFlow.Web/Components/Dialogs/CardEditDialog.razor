@@ -12,6 +12,13 @@
             }
         </MudSelect>
         <MudDatePicker Label="Due date" @bind-Date="dueDate" Class="mb-3" />
+        <MudSelect T="Guid?" Label="Assignee" @bind-Value="assignedUserId" Class="mb-3">
+            <MudSelectItem T="Guid?" Value="@((Guid?)null)">Unassigned</MudSelectItem>
+            @foreach (var member in members)
+            {
+                <MudSelectItem T="Guid?" Value="@((Guid?)member.UserId)">@member.DisplayName</MudSelectItem>
+            }
+        </MudSelect>
 
         @if (error is not null)
         {
@@ -28,6 +35,7 @@
 @code {
     [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
     [Parameter] public Guid BoardId { get; set; }
+    [Parameter] public Guid ProjectId { get; set; }
     [Parameter] public CardDto Card { get; set; } = default!;
     [Inject] private TaskFlowApiClient ApiClient { get; set; } = default!;
 
@@ -35,14 +43,18 @@
     private string? description;
     private CardPriority priority;
     private DateTime? dueDate;
+    private Guid? assignedUserId;
+    private IReadOnlyList<ProjectMemberDto> members = [];
     private string? error;
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         title = Card.Title;
         description = Card.Description;
         priority = Card.Priority;
         dueDate = Card.DueDateUtc;
+        assignedUserId = Card.AssignedUserId;
+        members = await ApiClient.GetMembersAsync(ProjectId) ?? [];
     }
 
     private async Task SaveAsync()
@@ -53,7 +65,7 @@
             return;
         }
 
-        var request = new UpdateCardRequest(title.Trim(), description, priority, Card.AssignedUserId, dueDate, Card.RowVersion);
+        var request = new UpdateCardRequest(title.Trim(), description, priority, assignedUserId, dueDate, Card.RowVersion);
         var (updated, err) = await ApiClient.UpdateCardAsync(BoardId, Card.Id, request);
         if (updated is null)
         {
