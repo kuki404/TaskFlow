@@ -97,6 +97,36 @@ public class BoardService(TaskFlowDbContext db, BoardCache boardCache, IHubConte
         return Result.Success();
     }
 
+    public async Task<IReadOnlyList<MyCardDto>> GetAssignedToUserAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        // Card/CardList/Board/Project all carry the tenant query filter, so this already never
+        // crosses tenants — filtering to AssignedUserId == userId on top of that gives exactly
+        // "my cards in my own tenant", no separate membership check needed.
+        var cards = await db.Cards
+            .AsNoTracking()
+            .Where(c => c.AssignedUserId == userId)
+            .Join(db.CardLists, c => c.CardListId, l => l.Id, (c, l) => new { Card = c, List = l })
+            .Join(db.Boards, x => x.List.BoardId, b => b.Id, (x, b) => new { x.Card, x.List, Board = b })
+            .Join(db.Projects, x => x.Board.ProjectId, p => p.Id, (x, p) => new MyCardDto(
+                x.Card.Id,
+                x.Card.Title,
+                x.Card.Description,
+                x.Card.Priority,
+                x.Card.DueDateUtc,
+                x.Board.Id,
+                p.Id,
+                p.Name,
+                x.List.Name))
+            .ToListAsync(cancellationToken);
+
+        var now = DateTime.UtcNow;
+        return cards
+            .OrderByDescending(c => c.DueDateUtc is not null && c.DueDateUtc < now && !c.CardListName.Equals("Done", StringComparison.OrdinalIgnoreCase))
+            .ThenBy(c => c.DueDateUtc ?? DateTime.MaxValue)
+            .ThenBy(c => c.ProjectName)
+            .ToList();
+    }
+
     public async Task<Result<CardDto>> CreateCardAsync(Guid boardId, CreateCardRequest request, CancellationToken cancellationToken = default)
     {
         var list = await db.CardLists.FirstOrDefaultAsync(l => l.Id == request.CardListId && l.BoardId == boardId, cancellationToken);

@@ -10,6 +10,9 @@ public interface IBoardService
     Task<Result> MoveCardListAsync(Guid boardId, Guid cardListId, MoveCardListRequest request, CancellationToken cancellationToken = default);
     Task<Result> DeleteCardListAsync(Guid boardId, Guid cardListId, CancellationToken cancellationToken = default);
 
+    /// <summary>Cross-board: every card assigned to this user across every project/board in their own tenant, overdue cards first.</summary>
+    Task<IReadOnlyList<MyCardDto>> GetAssignedToUserAsync(Guid userId, CancellationToken cancellationToken = default);
+
     Task<Result<CardDto>> CreateCardAsync(Guid boardId, CreateCardRequest request, CancellationToken cancellationToken = default);
     Task<Result<CardDto>> UpdateCardAsync(Guid boardId, Guid cardId, UpdateCardRequest request, CancellationToken cancellationToken = default);
     Task<Result<CardDto>> MoveCardAsync(Guid boardId, Guid cardId, MoveCardRequest request, CancellationToken cancellationToken = default);

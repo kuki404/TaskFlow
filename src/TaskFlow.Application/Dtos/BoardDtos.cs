@@ -43,3 +43,15 @@ public record MoveCardRequest(
     [Required] Guid TargetCardListId,
     [Range(0, int.MaxValue)] int Position,
     [Required] byte[] RowVersion);
+
+/// <summary>Flat projection of a card assigned to the current user, carrying enough board/project context to render a cross-board "My cards" list without N+1 lookups.</summary>
+public record MyCardDto(
+    Guid Id,
+    string Title,
+    string? Description,
+    CardPriority Priority,
+    DateTime? DueDateUtc,
+    Guid BoardId,
+    Guid ProjectId,
+    string ProjectName,
+    string CardListName);

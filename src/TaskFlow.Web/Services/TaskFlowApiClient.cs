@@ -41,6 +41,9 @@ public class TaskFlowApiClient(HttpClient http, AuthSession session)
     public Task<ProjectDto?> CreateProjectAsync(CreateProjectRequest request) =>
         SendAsync<ProjectDto>(HttpMethod.Post, "api/projects", request);
 
+    public Task<IReadOnlyList<MyCardDto>?> GetMyCardsAsync() =>
+        SendAsync<IReadOnlyList<MyCardDto>>(HttpMethod.Get, "api/cards/mine");
+
     public Task<IReadOnlyList<ProjectMemberDto>?> GetMembersAsync(Guid projectId) =>
         SendAsync<IReadOnlyList<ProjectMemberDto>>(HttpMethod.Get, $"api/projects/{projectId}/members");
 
