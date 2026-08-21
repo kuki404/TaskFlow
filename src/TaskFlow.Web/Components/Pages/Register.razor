@@ -12,7 +12,8 @@
     <MudTextField T="string" Label="Organization name" @bind-Value="tenantName" Required="true" />
     <MudTextField T="string" Label="Your name" @bind-Value="displayName" Required="true" Class="mt-2" />
     <MudTextField T="string" Label="Email" @bind-Value="email" Required="true" InputType="InputType.Email" Class="mt-2" />
-    <MudTextField T="string" Label="Password" @bind-Value="password" Required="true" InputType="InputType.Password" Class="mt-2" HelperText="At least 8 characters." />
+    <MudTextField T="string" Label="Password" @bind-Value="password" Required="true" InputType="InputType.Password" Class="mt-2"
+                 HelperText="At least 8 characters, with an uppercase letter, a lowercase letter, and a digit." />
     @if (error is not null)
     {
         <MudAlert Severity="Severity.Error" Class="mt-3">@error</MudAlert>

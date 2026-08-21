@@ -38,7 +38,16 @@ public class AuthService(
         var createResult = await userManager.CreateAsync(user, request.Password);
         if (!createResult.Succeeded)
         {
-            return Result<AuthResponse>.Failure("Could not create an account with the provided details.");
+            // A rejected password is not an enumeration oracle — telling the user which rule
+            // their password failed reveals nothing about whether the email is already
+            // registered. Only collapse to the generic message when a duplicate-email error is
+            // among the failures, so response specificity can never confirm an existing account.
+            var isDuplicateEmail = createResult.Errors.Any(e => e.Code is "DuplicateUserName" or "DuplicateEmail");
+            var message = isDuplicateEmail
+                ? "Could not create an account with the provided details."
+                : string.Join(" ", createResult.Errors.Select(e => e.Description));
+
+            return Result<AuthResponse>.Failure(message);
         }
 
         return Result<AuthResponse>.Success(await IssueTokensAsync(user, cancellationToken));
