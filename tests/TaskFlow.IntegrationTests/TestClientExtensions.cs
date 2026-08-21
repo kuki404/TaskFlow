@@ -17,10 +17,10 @@ public static class TestClientExtensions
         var email = $"user-{Guid.NewGuid():N}@test.local";
 
         var response = await client.PostAsJsonAsync("/api/auth/register",
-            new RegisterRequest(email, "Password123!", "Test User", tenantName ?? $"Tenant-{Guid.NewGuid():N}"));
+            new RegisterRequest(email, "Password123!", "Test User", tenantName ?? $"Tenant-{Guid.NewGuid():N}"), TestContext.Current.CancellationToken);
         response.EnsureSuccessStatusCode();
 
-        var auth = (await response.Content.ReadFromJsonAsync<AuthResponse>())!;
+        var auth = (await response.Content.ReadFromJsonAsync<AuthResponse>(TestContext.Current.CancellationToken))!;
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", auth.AccessToken);
         return (client, auth);
     }
@@ -39,7 +39,7 @@ public static class TestClientExtensions
         var email = $"user-{Guid.NewGuid():N}@test.local";
         var bootstrapClient = factory.CreateClient();
         var register = await bootstrapClient.PostAsJsonAsync("/api/auth/register",
-            new RegisterRequest(email, "Password123!", "Test Viewer", $"Throwaway-{Guid.NewGuid():N}"));
+            new RegisterRequest(email, "Password123!", "Test Viewer", $"Throwaway-{Guid.NewGuid():N}"), TestContext.Current.CancellationToken);
         register.EnsureSuccessStatusCode();
 
         using (var scope = factory.Services.CreateScope())
@@ -47,16 +47,16 @@ public static class TestClientExtensions
             var db = scope.ServiceProvider.GetRequiredService<TaskFlowDbContext>();
             // No HttpContext exists in this scope, so the tenant query filter has nothing to
             // compare against — IgnoreQueryFilters bypasses it for this test-only lookup.
-            var targetTenantId = await db.Projects.IgnoreQueryFilters().Where(p => p.Id == projectId).Select(p => p.TenantId).FirstAsync();
-            var user = await db.Users.FirstAsync(u => u.Email == email);
+            var targetTenantId = await db.Projects.IgnoreQueryFilters().Where(p => p.Id == projectId).Select(p => p.TenantId).FirstAsync(TestContext.Current.CancellationToken);
+            var user = await db.Users.FirstAsync(u => u.Email == email, TestContext.Current.CancellationToken);
             user.TenantId = targetTenantId;
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         var client = factory.CreateClient();
-        var login = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, "Password123!"));
+        var login = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, "Password123!"), TestContext.Current.CancellationToken);
         login.EnsureSuccessStatusCode();
-        var auth = (await login.Content.ReadFromJsonAsync<AuthResponse>())!;
+        var auth = (await login.Content.ReadFromJsonAsync<AuthResponse>(TestContext.Current.CancellationToken))!;
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", auth.AccessToken);
 
         return (client, email);

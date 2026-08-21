@@ -1,3 +1,4 @@
+using Shouldly;
 using TaskFlow.Domain.Entities;
 using TaskFlow.Domain.Enums;
 using TaskFlow.Domain.Exceptions;
@@ -12,13 +13,13 @@ public class CardTests
     [Fact]
     public void Create_WithBlankTitle_Throws()
     {
-        Assert.Throws<DomainException>(() => Card.Create(TenantId, CardListId, "   ", null, CardPriority.Low, 0));
+        Should.Throw<DomainException>(() => Card.Create(TenantId, CardListId, "   ", null, CardPriority.Low, 0));
     }
 
     [Fact]
     public void Create_WithNegativePosition_Throws()
     {
-        Assert.Throws<DomainException>(() => Card.Create(TenantId, CardListId, "Title", null, CardPriority.Low, -1));
+        Should.Throw<DomainException>(() => Card.Create(TenantId, CardListId, "Title", null, CardPriority.Low, -1));
     }
 
     [Fact]
@@ -26,9 +27,9 @@ public class CardTests
     {
         var card = Card.Create(TenantId, CardListId, "  Ship it  ", "  notes  ", CardPriority.High, 0);
 
-        Assert.Equal("Ship it", card.Title);
-        Assert.Equal("notes", card.Description);
-        Assert.Equal(CardPriority.High, card.Priority);
+        card.Title.ShouldBe("Ship it");
+        card.Description.ShouldBe("notes");
+        card.Priority.ShouldBe(CardPriority.High);
     }
 
     [Fact]
@@ -36,7 +37,7 @@ public class CardTests
     {
         var card = Card.Create(TenantId, CardListId, "Title", null, CardPriority.Low, 0);
 
-        Assert.Throws<DomainException>(() => card.MoveTo(Guid.NewGuid(), -1));
+        Should.Throw<DomainException>(() => card.MoveTo(Guid.NewGuid(), -1));
     }
 
     [Fact]
@@ -47,8 +48,8 @@ public class CardTests
 
         card.MoveTo(targetListId, 3);
 
-        Assert.Equal(targetListId, card.CardListId);
-        Assert.Equal(3, card.Position);
+        card.CardListId.ShouldBe(targetListId);
+        card.Position.ShouldBe(3);
     }
 
     [Fact]
@@ -56,7 +57,7 @@ public class CardTests
     {
         var card = Card.Create(TenantId, CardListId, "Title", null, CardPriority.Low, 0);
 
-        Assert.Throws<DomainException>(() => card.UpdateDetails("  ", null, CardPriority.Low, null, null));
+        Should.Throw<DomainException>(() => card.UpdateDetails("  ", null, CardPriority.Low, null, null));
     }
 
     [Fact]
@@ -68,10 +69,10 @@ public class CardTests
 
         card.UpdateDetails("New title", "New description", CardPriority.Urgent, assignee, due);
 
-        Assert.Equal("New title", card.Title);
-        Assert.Equal("New description", card.Description);
-        Assert.Equal(CardPriority.Urgent, card.Priority);
-        Assert.Equal(assignee, card.AssignedUserId);
-        Assert.Equal(due, card.DueDateUtc);
+        card.Title.ShouldBe("New title");
+        card.Description.ShouldBe("New description");
+        card.Priority.ShouldBe(CardPriority.Urgent);
+        card.AssignedUserId.ShouldBe(assignee);
+        card.DueDateUtc.ShouldBe(due);
     }
 }

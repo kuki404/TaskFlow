@@ -1,3 +1,4 @@
+using Shouldly;
 using TaskFlow.Domain.Entities;
 using TaskFlow.Domain.Enums;
 using TaskFlow.Domain.Exceptions;
@@ -14,9 +15,9 @@ public class BoardTests
 
         var board = Board.Create(tenantId, projectId);
 
-        Assert.Equal(3, board.CardLists.Count);
-        Assert.Equal(["To Do", "In Progress", "Done"], board.CardLists.Select(l => l.Name));
-        Assert.All(board.CardLists, l => Assert.Equal(tenantId, l.TenantId));
+        board.CardLists.Count.ShouldBe(3);
+        board.CardLists.Select(l => l.Name).ShouldBe(["To Do", "In Progress", "Done"]);
+        board.CardLists.ShouldAllBe(l => l.TenantId == tenantId);
     }
 
     [Fact]
@@ -24,13 +25,13 @@ public class BoardTests
     {
         var board = Board.Create(Guid.NewGuid(), Guid.NewGuid());
 
-        Assert.Equal([0, 1, 2], board.CardLists.Select(l => l.Position));
+        board.CardLists.Select(l => l.Position).ShouldBe([0, 1, 2]);
     }
 
     [Fact]
     public void CardListCreate_WithNegativePosition_Throws()
     {
-        Assert.Throws<DomainException>(() => CardList.Create(Guid.NewGuid(), Guid.NewGuid(), "Backlog", -1));
+        Should.Throw<DomainException>(() => CardList.Create(Guid.NewGuid(), Guid.NewGuid(), "Backlog", -1));
     }
 
     [Fact]
@@ -38,7 +39,7 @@ public class BoardTests
     {
         var list = CardList.Create(Guid.NewGuid(), Guid.NewGuid(), "Backlog", 0);
 
-        Assert.Throws<DomainException>(() => list.MoveTo(-1));
+        Should.Throw<DomainException>(() => list.MoveTo(-1));
     }
 
     [Fact]
@@ -49,9 +50,9 @@ public class BoardTests
 
         var project = Project.Create(tenantId, "Launch", "desc", ownerId);
 
-        Assert.NotNull(project.Board);
-        Assert.Single(project.Members);
-        Assert.Equal(ownerId, project.Members[0].UserId);
-        Assert.Equal(ProjectRole.Owner, project.Members[0].Role);
+        project.Board.ShouldNotBeNull();
+        project.Members.Count.ShouldBe(1);
+        project.Members[0].UserId.ShouldBe(ownerId);
+        project.Members[0].Role.ShouldBe(ProjectRole.Owner);
     }
 }

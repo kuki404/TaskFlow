@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using Shouldly;
 using TaskFlow.Application.Dtos;
 
 namespace TaskFlow.IntegrationTests;
@@ -14,36 +15,38 @@ namespace TaskFlow.IntegrationTests;
 [Collection("Integration")]
 public class RegisterErrorMessageTests(TaskFlowWebApplicationFactory factory)
 {
-    private readonly HttpClient client = factory.CreateClient();
-
     [Fact]
     public async Task Register_WithAPasswordMissingAnUppercaseLetter_ReturnsASpecificReason()
     {
+        await factory.ResetDatabaseAsync();
+        var client = factory.CreateClient();
         var email = $"user-{Guid.NewGuid():N}@test.local";
 
         var response = await client.PostAsJsonAsync("/api/auth/register",
-            new RegisterRequest(email, "password1", "Test User", "Test Tenant"));
+            new RegisterRequest(email, "password1", "Test User", "Test Tenant"), TestContext.Current.CancellationToken);
 
-        Assert.NotEqual(HttpStatusCode.OK, response.StatusCode);
-        var body = await response.Content.ReadAsStringAsync();
+        response.StatusCode.ShouldNotBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         // The generic "Could not create an account with the provided details." is reserved for
         // the enumeration-sensitive duplicate-email case, not a plain password-policy failure.
-        Assert.DoesNotContain("Could not create an account with the provided details.", body);
-        Assert.Contains("uppercase", body, StringComparison.OrdinalIgnoreCase);
+        body.ShouldNotContain("Could not create an account with the provided details.");
+        body.ShouldContain("uppercase", Case.Insensitive);
     }
 
     [Fact]
     public async Task Register_WithADuplicateEmail_StillReturnsTheGenericEnumerationSafeMessage()
     {
+        await factory.ResetDatabaseAsync();
+        var client = factory.CreateClient();
         var email = $"user-{Guid.NewGuid():N}@test.local";
         var firstResponse = await client.PostAsJsonAsync("/api/auth/register",
-            new RegisterRequest(email, "Passw0rd123", "First User", "First Tenant"));
-        Assert.Equal(HttpStatusCode.OK, firstResponse.StatusCode);
+            new RegisterRequest(email, "Passw0rd123", "First User", "First Tenant"), TestContext.Current.CancellationToken);
+        firstResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var secondResponse = await client.PostAsJsonAsync("/api/auth/register",
-            new RegisterRequest(email, "Passw0rd123", "Second User", "Second Tenant"));
+            new RegisterRequest(email, "Passw0rd123", "Second User", "Second Tenant"), TestContext.Current.CancellationToken);
 
-        var body = await secondResponse.Content.ReadAsStringAsync();
-        Assert.Contains("Could not create an account with the provided details.", body);
+        var body = await secondResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        body.ShouldContain("Could not create an account with the provided details.");
     }
 }
