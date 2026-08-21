@@ -1,0 +1,144 @@
+@page "/projects/{ProjectId:guid}/members"
+@attribute [Authorize]
+@using TaskFlow.Application.Dtos
+@using TaskFlow.Domain.Enums
+@inject TaskFlowApiClient ApiClient
+@inject ISnackbar Snackbar
+
+<PageTitle>Members - TaskFlow</PageTitle>
+
+<MudText Typo="Typo.h4" GutterBottom="true">Project members</MudText>
+
+@if (members is null)
+{
+    <MudSkeleton Width="100%" Height="200px" />
+}
+else
+{
+    @if (isOwner)
+    {
+        <MudPaper Class="pa-4 mb-4" Elevation="2">
+            <MudText Typo="Typo.subtitle1" Class="mb-2">Add a member</MudText>
+            <div style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap;">
+                <MudTextField T="string" Label="Email" @bind-Value="newEmail" Style="min-width:260px;" />
+                <MudSelect T="ProjectRole" Label="Role" @bind-Value="newRole" Style="min-width:160px;">
+                    @foreach (var role in Enum.GetValues<ProjectRole>())
+                    {
+                        <MudSelectItem Value="@role">@role</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="AddMemberAsync">Add</MudButton>
+            </div>
+            @if (addError is not null)
+            {
+                <MudAlert Severity="Severity.Error" Class="mt-3">@addError</MudAlert>
+            }
+        </MudPaper>
+    }
+    else
+    {
+        <MudAlert Severity="Severity.Info" Class="mb-4">Only project Owners can add or remove members or change roles.</MudAlert>
+    }
+
+    <MudTable Items="@members" Hover="true">
+        <HeaderContent>
+            <MudTh>Name</MudTh>
+            <MudTh>Email</MudTh>
+            <MudTh>Role</MudTh>
+            <MudTh></MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Name">@context.DisplayName @(context.UserId == currentUserId ? "(you)" : "")</MudTd>
+            <MudTd DataLabel="Email">@context.Email</MudTd>
+            <MudTd DataLabel="Role">
+                @if (isOwner)
+                {
+                    <MudSelect T="ProjectRole" Value="@context.Role" ValueChanged="@(role => ChangeRoleAsync(context, role))" Dense="true" Margin="Margin.Dense">
+                        @foreach (var role in Enum.GetValues<ProjectRole>())
+                        {
+                            <MudSelectItem Value="@role">@role</MudSelectItem>
+                        }
+                    </MudSelect>
+                }
+                else
+                {
+                    @context.Role
+                }
+            </MudTd>
+            <MudTd>
+                @if (isOwner)
+                {
+                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" OnClick="@(() => RemoveMemberAsync(context))" aria-label="Remove member" />
+                }
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
+}
+
+@code {
+    [Parameter] public Guid ProjectId { get; set; }
+
+    private IReadOnlyList<ProjectMemberDto>? members;
+    private Guid? currentUserId;
+    private bool isOwner;
+    private string newEmail = string.Empty;
+    private ProjectRole newRole = ProjectRole.Member;
+    private string? addError;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        currentUserId = ApiClient.CurrentUserId;
+        members = await ApiClient.GetMembersAsync(ProjectId) ?? Array.Empty<ProjectMemberDto>();
+        isOwner = members.Any(m => m.UserId == currentUserId && m.Role == ProjectRole.Owner);
+    }
+
+    private async Task AddMemberAsync()
+    {
+        addError = null;
+        if (string.IsNullOrWhiteSpace(newEmail))
+        {
+            addError = "Email is required.";
+            return;
+        }
+
+        var (member, error) = await ApiClient.AddMemberAsync(ProjectId, new AddProjectMemberRequest(newEmail.Trim(), newRole));
+        if (member is null)
+        {
+            addError = error ?? "Could not add the member.";
+            return;
+        }
+
+        newEmail = string.Empty;
+        newRole = ProjectRole.Member;
+        await LoadAsync();
+    }
+
+    private async Task ChangeRoleAsync(ProjectMemberDto member, ProjectRole role)
+    {
+        if (role == member.Role)
+        {
+            return;
+        }
+
+        var response = await ApiClient.UpdateMemberRoleAsync(ProjectId, member.Id, new UpdateProjectMemberRoleRequest(role));
+        if (!response.IsSuccessStatusCode)
+        {
+            Snackbar.Add("Could not change the member's role.", Severity.Warning);
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task RemoveMemberAsync(ProjectMemberDto member)
+    {
+        var response = await ApiClient.RemoveMemberAsync(ProjectId, member.Id);
+        if (!response.IsSuccessStatusCode)
+        {
+            Snackbar.Add("Could not remove the member.", Severity.Warning);
+        }
+
+        await LoadAsync();
+    }
+}

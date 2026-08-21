@@ -44,6 +44,7 @@ else
                     </MudCardContent>
                     <MudCardActions>
                         <MudButton Color="Color.Primary" OnClick="@(() => Navigation.NavigateTo($"/boards/{project.BoardId}"))">Open board</MudButton>
+                        <MudButton Color="Color.Default" OnClick="@(() => Navigation.NavigateTo($"/projects/{project.Id}/members"))">Members</MudButton>
                     </MudCardActions>
                 </MudCard>
             </MudItem>
