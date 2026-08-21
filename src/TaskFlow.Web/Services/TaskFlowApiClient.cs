@@ -55,7 +55,10 @@ public class TaskFlowApiClient(HttpClient http, AuthSession session)
 
     public async Task<(CardDto? Card, string? Error)> MoveCardAsync(Guid boardId, Guid cardId, MoveCardRequest request)
     {
-        var response = await SendRawAsync(HttpMethod.Post, $"api/boards/{boardId}/cards/{cardId}/move", request);
+        // Regression fix: this sent POST while BoardsController declares [HttpPut(".../move")],
+        // so every drag-and-drop drop returned 405 and was misreported to the user as a
+        // concurrency conflict. Proven live: POST -> 405, PUT -> 200 with the card actually moved.
+        var response = await SendRawAsync(HttpMethod.Put, $"api/boards/{boardId}/cards/{cardId}/move", request);
         if (!response.IsSuccessStatusCode)
         {
             return (null, await ReadErrorAsync(response));
