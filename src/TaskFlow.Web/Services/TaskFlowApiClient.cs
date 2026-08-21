@@ -67,8 +67,67 @@ public class TaskFlowApiClient(HttpClient http, AuthSession session)
         return (await response.Content.ReadFromJsonAsync<CardDto>(), null);
     }
 
+    public async Task<(CardDto? Card, string? Error)> UpdateCardAsync(Guid boardId, Guid cardId, UpdateCardRequest request)
+    {
+        var response = await SendRawAsync(HttpMethod.Put, $"api/boards/{boardId}/cards/{cardId}", request);
+        if (!response.IsSuccessStatusCode)
+        {
+            return (null, await ReadErrorAsync(response));
+        }
+
+        return (await response.Content.ReadFromJsonAsync<CardDto>(), null);
+    }
+
     public Task<HttpResponseMessage> DeleteCardAsync(Guid boardId, Guid cardId) =>
         SendRawAsync(HttpMethod.Delete, $"api/boards/{boardId}/cards/{cardId}");
+
+    public Task<HttpResponseMessage> DeleteListAsync(Guid boardId, Guid cardListId) =>
+        SendRawAsync(HttpMethod.Delete, $"api/boards/{boardId}/lists/{cardListId}");
+
+    public Task<(ProjectMemberDto? Member, string? Error)> AddMemberAsync(Guid projectId, AddProjectMemberRequest request) =>
+        SendWithErrorAsync<ProjectMemberDto>(HttpMethod.Post, $"api/projects/{projectId}/members", request);
+
+    public Task<HttpResponseMessage> UpdateMemberRoleAsync(Guid projectId, Guid memberId, UpdateProjectMemberRoleRequest request) =>
+        SendRawAsync(HttpMethod.Put, $"api/projects/{projectId}/members/{memberId}", request);
+
+    public Task<HttpResponseMessage> RemoveMemberAsync(Guid projectId, Guid memberId) =>
+        SendRawAsync(HttpMethod.Delete, $"api/projects/{projectId}/members/{memberId}");
+
+    /// <summary>Decodes the "sub" claim from the current access token — the API never exposes a
+    /// "/me" endpoint, and this is the only source of the signed-in user's own UserId on the
+    /// client, needed to tell which row in a members list is "you" and what your own role is.</summary>
+    public Guid? CurrentUserId
+    {
+        get
+        {
+            var token = session.Current?.AccessToken;
+            if (token is null)
+            {
+                return null;
+            }
+
+            var parts = token.Split('.');
+            if (parts.Length < 2)
+            {
+                return null;
+            }
+
+            try
+            {
+                var payload = parts[1].PadRight(parts[1].Length + (4 - parts[1].Length % 4) % 4, '=')
+                    .Replace('-', '+').Replace('_', '/');
+                var json = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(payload));
+                using var doc = System.Text.Json.JsonDocument.Parse(json);
+                return doc.RootElement.TryGetProperty("sub", out var sub) && Guid.TryParse(sub.GetString(), out var id)
+                    ? id
+                    : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+    }
 
     public string? CurrentAccessToken => session.Current?.AccessToken;
 
@@ -76,6 +135,17 @@ public class TaskFlowApiClient(HttpClient http, AuthSession session)
     {
         var response = await SendRawAsync(method, url, body);
         return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<T>() : default;
+    }
+
+    private async Task<(T? Result, string? Error)> SendWithErrorAsync<T>(HttpMethod method, string url, object? body = null)
+    {
+        var response = await SendRawAsync(method, url, body);
+        if (!response.IsSuccessStatusCode)
+        {
+            return (default, await ReadErrorAsync(response));
+        }
+
+        return (await response.Content.ReadFromJsonAsync<T>(), null);
     }
 
     private async Task<HttpResponseMessage> SendRawAsync(HttpMethod method, string url, object? body = null)
