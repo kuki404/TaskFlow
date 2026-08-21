@@ -1,0 +1,80 @@
+@using TaskFlow.Application.Dtos
+@using TaskFlow.Domain.Enums
+
+<MudDialog>
+    <DialogContent>
+        <MudTextField T="string" Label="Title" @bind-Value="title" Required="true" MaxLength="200" Class="mb-3" />
+        <MudTextField T="string" Label="Description" @bind-Value="description" Lines="3" MaxLength="2000" Class="mb-3" />
+        <MudSelect T="CardPriority" Label="Priority" @bind-Value="priority" Class="mb-3">
+            @foreach (var value in Enum.GetValues<CardPriority>())
+            {
+                <MudSelectItem Value="@value">@value</MudSelectItem>
+            }
+        </MudSelect>
+        <MudDatePicker Label="Due date" @bind-Date="dueDate" Class="mb-3" />
+
+        @if (error is not null)
+        {
+            <MudAlert Severity="Severity.Error" Class="mt-2">@error</MudAlert>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Color="Color.Error" OnClick="DeleteAsync" Class="mr-auto">Delete card</MudButton>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveAsync">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public Guid BoardId { get; set; }
+    [Parameter] public CardDto Card { get; set; } = default!;
+    [Inject] private TaskFlowApiClient ApiClient { get; set; } = default!;
+
+    private string title = string.Empty;
+    private string? description;
+    private CardPriority priority;
+    private DateTime? dueDate;
+    private string? error;
+
+    protected override void OnInitialized()
+    {
+        title = Card.Title;
+        description = Card.Description;
+        priority = Card.Priority;
+        dueDate = Card.DueDateUtc;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            error = "Title is required.";
+            return;
+        }
+
+        var request = new UpdateCardRequest(title.Trim(), description, priority, Card.AssignedUserId, dueDate, Card.RowVersion);
+        var (updated, err) = await ApiClient.UpdateCardAsync(BoardId, Card.Id, request);
+        if (updated is null)
+        {
+            error = err ?? "Could not save the card.";
+            return;
+        }
+
+        MudDialog.Close(DialogResult.Ok(true));
+    }
+
+    private async Task DeleteAsync()
+    {
+        var response = await ApiClient.DeleteCardAsync(BoardId, Card.Id);
+        if (!response.IsSuccessStatusCode)
+        {
+            error = "Could not delete the card.";
+            return;
+        }
+
+        MudDialog.Close(DialogResult.Ok(true));
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+}

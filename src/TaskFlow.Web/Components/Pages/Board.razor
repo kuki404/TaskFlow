@@ -6,6 +6,7 @@
 @inject IJSRuntime JsRuntime
 @inject ISnackbar Snackbar
 @inject IConfiguration Configuration
+@inject IDialogService DialogService
 @implements IAsyncDisposable
 
 <PageTitle>@(board?.ProjectName ?? "Board") - TaskFlow</PageTitle>
@@ -23,12 +24,15 @@ else
         @foreach (var list in board.CardLists.OrderBy(l => l.Position))
         {
             <MudPaper Class="pa-3" Style="min-width:280px; max-width:280px;" Elevation="1">
-                <MudText Typo="Typo.subtitle1" Class="mb-2">@list.Name</MudText>
+                <div style="display:flex; align-items:center; justify-content:space-between;" class="mb-2">
+                    <MudText Typo="Typo.subtitle1">@list.Name</MudText>
+                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" OnClick="@(() => DeleteListAsync(list))" aria-label="Delete list" />
+                </div>
 
                 @foreach (var card in list.Cards.OrderBy(c => c.Position))
                 {
-                    <MudCard Class="mb-2" draggable="true"
-                             @ondragstart="@(() => draggingCardId = card.Id)">
+                    <MudCard Class="mb-2" draggable="true" @onclick="@(() => EditCardAsync(card))"
+                             @ondragstart="@(() => draggingCardId = card.Id)" Style="cursor:pointer;">
                         <MudCardContent Class="pa-2">
                             <MudText Typo="Typo.body1">@card.Title</MudText>
                             <MudChip T="string" Size="Size.Small" Color="@PriorityColor(card.Priority)">@card.Priority</MudChip>
@@ -48,6 +52,12 @@ else
                 </div>
             </MudPaper>
         }
+
+        <MudPaper Class="pa-3" Style="min-width:220px; max-width:220px; display:flex; align-items:flex-start;" Elevation="0">
+            <MudButton FullWidth="true" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Add" OnClick="AddListAsync">
+                Add list
+            </MudButton>
+        </MudPaper>
     </div>
 
     @if (conflictMessage is not null)
@@ -127,7 +137,76 @@ else
 
     private async Task AddCardAsync(Guid cardListId)
     {
-        await ApiClient.CreateCardAsync(BoardId, new CreateCardRequest(cardListId, "New card", null, TaskFlow.Domain.Enums.CardPriority.Medium, null, null));
+        var dialog = await DialogService.ShowAsync<TaskFlow.Web.Components.Dialogs.TextPromptDialog>("New card",
+            new DialogParameters<TaskFlow.Web.Components.Dialogs.TextPromptDialog>
+            {
+                { d => d.Label, "Card title" },
+                { d => d.SubmitText, "Add" },
+                { d => d.MaxLength, 200 }
+            });
+        var result = await dialog.Result;
+        if (result is null || result.Canceled || result.Data is not string title)
+        {
+            return;
+        }
+
+        await ApiClient.CreateCardAsync(BoardId, new CreateCardRequest(cardListId, title, null, TaskFlow.Domain.Enums.CardPriority.Medium, null, null));
+        await LoadAsync();
+    }
+
+    private async Task EditCardAsync(CardDto card)
+    {
+        var dialog = await DialogService.ShowAsync<TaskFlow.Web.Components.Dialogs.CardEditDialog>("Edit card",
+            new DialogParameters<TaskFlow.Web.Components.Dialogs.CardEditDialog>
+            {
+                { d => d.BoardId, BoardId },
+                { d => d.Card, card }
+            });
+        var result = await dialog.Result;
+        if (result is not null && !result.Canceled)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task AddListAsync()
+    {
+        var dialog = await DialogService.ShowAsync<TaskFlow.Web.Components.Dialogs.TextPromptDialog>("New list",
+            new DialogParameters<TaskFlow.Web.Components.Dialogs.TextPromptDialog>
+            {
+                { d => d.Label, "List name" },
+                { d => d.SubmitText, "Add" },
+                { d => d.MaxLength, 100 }
+            });
+        var result = await dialog.Result;
+        if (result is null || result.Canceled || result.Data is not string name)
+        {
+            return;
+        }
+
+        await ApiClient.CreateListAsync(BoardId, new CreateCardListRequest(name));
+        await LoadAsync();
+    }
+
+    private async Task DeleteListAsync(CardListDto list)
+    {
+        var dialog = await DialogService.ShowAsync<TaskFlow.Web.Components.Dialogs.ConfirmDialog>("Delete list",
+            new DialogParameters<TaskFlow.Web.Components.Dialogs.ConfirmDialog>
+            {
+                { d => d.Message, $"Delete \"{list.Name}\" and all its cards? This can't be undone." }
+            });
+        var result = await dialog.Result;
+        if (result is null || result.Canceled)
+        {
+            return;
+        }
+
+        var response = await ApiClient.DeleteListAsync(BoardId, list.Id);
+        if (!response.IsSuccessStatusCode)
+        {
+            Snackbar.Add("Could not delete the list.", Severity.Warning);
+        }
+
         await LoadAsync();
     }
 
