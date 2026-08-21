@@ -8,12 +8,12 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace TaskFlow.Infrastructure.Auth;
 
-public class JwtTokenService(IConfiguration configuration) : ITokenService
+public class JwtTokenService(IConfiguration configuration, TimeProvider timeProvider) : ITokenService
 {
     public AccessToken CreateAccessToken(TokenSubject subject)
     {
         var minutes = int.TryParse(configuration["Jwt:AccessTokenMinutes"], out var m) ? m : 15;
-        var expiresAtUtc = DateTime.UtcNow.AddMinutes(minutes);
+        var expiresAtUtc = timeProvider.GetUtcNow().UtcDateTime.AddMinutes(minutes);
 
         // "tenant_id" is the ONLY source TaskFlowDbContext's query filters trust (see
         // ICurrentTenantProvider) — it is set here, once, from the authenticated user's own

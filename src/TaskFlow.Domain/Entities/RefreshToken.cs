@@ -11,25 +11,28 @@ public class RefreshToken
     public DateTime? RevokedAtUtc { get; private set; }
     public Guid? ReplacedByTokenId { get; private set; }
 
-    public bool IsActive => RevokedAtUtc is null && DateTime.UtcNow < ExpiresAtUtc;
+    // Callers supply `now` (from TimeProvider) rather than this entity reading the clock itself —
+    // keeps the clock a single injected dependency at the service boundary and makes reuse
+    // detection / expiry precisely testable with a fake clock (see AuthService, RefreshTokenTests).
+    public bool IsActive(DateTime nowUtc) => RevokedAtUtc is null && nowUtc < ExpiresAtUtc;
 
     private RefreshToken()
     {
         // EF Core materialization constructor.
     }
 
-    public static RefreshToken Create(Guid userId, string tokenHash, TimeSpan lifetime) => new()
+    public static RefreshToken Create(Guid userId, string tokenHash, TimeSpan lifetime, DateTime nowUtc) => new()
     {
         Id = Guid.NewGuid(),
         UserId = userId,
         TokenHash = tokenHash,
-        CreatedAtUtc = DateTime.UtcNow,
-        ExpiresAtUtc = DateTime.UtcNow.Add(lifetime)
+        CreatedAtUtc = nowUtc,
+        ExpiresAtUtc = nowUtc.Add(lifetime)
     };
 
-    public void Revoke(Guid? replacedByTokenId = null)
+    public void Revoke(DateTime nowUtc, Guid? replacedByTokenId = null)
     {
-        RevokedAtUtc = DateTime.UtcNow;
+        RevokedAtUtc = nowUtc;
         ReplacedByTokenId = replacedByTokenId;
     }
 }

@@ -14,7 +14,8 @@ public class AuthService(
     UserManager<ApplicationUser> userManager,
     SignInManager<ApplicationUser> signInManager,
     TaskFlowDbContext db,
-    ITokenService tokenService) : IAuthService
+    ITokenService tokenService,
+    TimeProvider timeProvider) : IAuthService
 {
     private static readonly TimeSpan RefreshTokenLifetime = TimeSpan.FromDays(30);
 
@@ -94,14 +95,15 @@ public class AuthService(
             // Reuse of an already-revoked token means a captured/stolen token was replayed after
             // the legitimate rotation already moved past it — kill every active session for the
             // account, not just this one token (OWASP / OAuth 2.0 Security BCP reuse detection).
+            var revokedAtUtc = timeProvider.GetUtcNow().UtcDateTime;
             await db.RefreshTokens
                 .Where(t => t.UserId == storedToken.UserId && t.RevokedAtUtc == null)
-                .ExecuteUpdateAsync(setters => setters.SetProperty(t => t.RevokedAtUtc, DateTime.UtcNow), cancellationToken);
+                .ExecuteUpdateAsync(setters => setters.SetProperty(t => t.RevokedAtUtc, revokedAtUtc), cancellationToken);
 
             return Result<AuthResponse>.Failure("Refresh token has already been used. All sessions were revoked.", ResultErrorType.Conflict);
         }
 
-        if (!storedToken.IsActive)
+        if (!storedToken.IsActive(timeProvider.GetUtcNow().UtcDateTime))
         {
             return Result<AuthResponse>.Failure("Refresh token is invalid or expired.", ResultErrorType.NotFound);
         }
@@ -113,7 +115,7 @@ public class AuthService(
         }
 
         var (response, newTokenEntity) = await IssueTokensWithEntityAsync(user, cancellationToken);
-        storedToken.Revoke(newTokenEntity.Id);
+        storedToken.Revoke(timeProvider.GetUtcNow().UtcDateTime, newTokenEntity.Id);
         await db.SaveChangesAsync(cancellationToken);
 
         return Result<AuthResponse>.Success(response);
@@ -122,9 +124,10 @@ public class AuthService(
     public async Task RevokeAsync(string rawRefreshToken, CancellationToken cancellationToken = default)
     {
         var tokenHash = tokenService.HashRefreshToken(rawRefreshToken);
+        var revokedAtUtc = timeProvider.GetUtcNow().UtcDateTime;
         await db.RefreshTokens
             .Where(t => t.TokenHash == tokenHash && t.RevokedAtUtc == null)
-            .ExecuteUpdateAsync(setters => setters.SetProperty(t => t.RevokedAtUtc, DateTime.UtcNow), cancellationToken);
+            .ExecuteUpdateAsync(setters => setters.SetProperty(t => t.RevokedAtUtc, revokedAtUtc), cancellationToken);
     }
 
     private async Task<AuthResponse> IssueTokensAsync(ApplicationUser user, CancellationToken cancellationToken) =>
@@ -136,7 +139,7 @@ public class AuthService(
         var accessToken = tokenService.CreateAccessToken(new TokenSubject(user.Id, user.TenantId, user.Email!, user.DisplayName));
 
         var (rawRefreshToken, refreshTokenHash) = tokenService.CreateRefreshToken();
-        var refreshTokenEntity = RefreshToken.Create(user.Id, refreshTokenHash, RefreshTokenLifetime);
+        var refreshTokenEntity = RefreshToken.Create(user.Id, refreshTokenHash, RefreshTokenLifetime, timeProvider.GetUtcNow().UtcDateTime);
         db.RefreshTokens.Add(refreshTokenEntity);
         await db.SaveChangesAsync(cancellationToken);
 

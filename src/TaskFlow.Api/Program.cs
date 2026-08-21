@@ -38,6 +38,7 @@ builder.Services.AddDbContext<TaskFlowDbContext>(options =>
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentTenantProvider, CurrentTenantProvider>();
+builder.Services.AddSingleton(TimeProvider.System);
 
 // --- Identity (API-only: no cookie scheme, JWT is the sole authentication scheme) ---
 builder.Services.AddIdentityCore<ApplicationUser>(options =>

@@ -1,9 +1,11 @@
 using System.Data.Common;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
 using Respawn;
 using TaskFlow.Infrastructure;
 using Testcontainers.MsSql;
@@ -30,6 +32,12 @@ public class TaskFlowWebApplicationFactory : WebApplicationFactory<Program>, IAs
 
     private DbConnection connection = null!;
     private Respawner respawner = null!;
+
+    // Replaces the app's TimeProvider.System singleton so tests can advance the clock to exercise
+    // timing-sensitive logic (refresh-token expiry, overdue cards) deterministically. Tests in this
+    // collection run sequentially (shared "Integration" collection fixture), so mutating shared
+    // clock state is safe as long as each test resets it back to real time when it's done.
+    public FakeTimeProvider TimeProvider { get; } = new(DateTimeOffset.UtcNow);
 
     public async ValueTask InitializeAsync()
     {
@@ -77,7 +85,8 @@ public class TaskFlowWebApplicationFactory : WebApplicationFactory<Program>, IAs
         ";TrustServerCertificate=True;Encrypt=True";
 
     protected override void ConfigureWebHost(IWebHostBuilder builder) =>
-        builder.UseEnvironment("Development");
+        builder.UseEnvironment("Development")
+            .ConfigureTestServices(services => services.AddSingleton<System.TimeProvider>(TimeProvider));
 
     public override async ValueTask DisposeAsync()
     {

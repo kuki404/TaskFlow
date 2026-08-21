@@ -83,4 +83,47 @@ public class AuthTests(TaskFlowWebApplicationFactory factory)
         var afterReuse = await client.PostAsJsonAsync("/api/auth/refresh", new RefreshRequest(secondRefreshData!.RefreshToken), TestContext.Current.CancellationToken);
         afterReuse.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
     }
+
+    [Fact]
+    public async Task Refresh_AfterTokenLifetimeElapses_IsRejectedAsExpired_NotAsReuse()
+    {
+        // Proves the TimeProvider abstraction is actually load-bearing: a token that is simply
+        // expired (clock moved past ExpiresAtUtc, never revoked) must fail with a DIFFERENT reason
+        // than a reused/revoked token (Refresh_ReusingAnAlreadyRotatedToken_RevokesAllSessions
+        // above) — both surface as 401 at the HTTP layer (AuthController.Refresh always returns
+        // Unauthorized on failure), but AuthService.RefreshAsync distinguishes "invalid or expired"
+        // (IsActive/expiry check, ResultErrorType.NotFound) from "already used, sessions revoked"
+        // (reuse detection, ResultErrorType.Conflict) — asserting the message proves the expiry
+        // branch fired, not the reuse branch. That distinction was untestable before: without a
+        // controllable clock there was no way to move 30 days into the future without waiting it.
+        // FakeTimeProvider refuses to move backward (by design — it would falsify anything that
+        // already read the clock), so this test only ever advances it forward and never restores
+        // real time afterward. That's safe here: no other test in this collection asserts against
+        // absolute wall-clock values, only relative deltas and DB state that ResetDatabaseAsync
+        // clears — a clock parked in the future doesn't invalidate anything they check.
+        await factory.ResetDatabaseAsync();
+
+        var client = factory.CreateClient();
+        var email = $"user-{Guid.NewGuid():N}@test.local";
+        var register = await client.PostAsJsonAsync("/api/auth/register",
+            new RegisterRequest(email, "Password123!", "Test User", "Test Tenant"), TestContext.Current.CancellationToken);
+        var original = await register.Content.ReadFromJsonAsync<AuthResponse>(TestContext.Current.CancellationToken);
+
+        // One day before expiry (refresh tokens live 30 days, per AuthService.RefreshTokenLifetime)
+        // the token must still work — proves the fake clock actually flows through TimeProvider
+        // into RefreshToken.IsActive rather than the check being a no-op.
+        factory.TimeProvider.Advance(TimeSpan.FromDays(29));
+        var stillValid = await client.PostAsJsonAsync("/api/auth/refresh", new RefreshRequest(original!.RefreshToken), TestContext.Current.CancellationToken);
+        stillValid.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var rotated = await stillValid.Content.ReadFromJsonAsync<AuthResponse>(TestContext.Current.CancellationToken);
+
+        // Push the newly-rotated token's own clock past its 30-day expiry without ever touching
+        // (revoking) it — a pure time-based expiry, distinct from reuse-triggered revocation.
+        factory.TimeProvider.Advance(TimeSpan.FromDays(31));
+        var expired = await client.PostAsJsonAsync("/api/auth/refresh", new RefreshRequest(rotated!.RefreshToken), TestContext.Current.CancellationToken);
+        expired.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        var expiredBody = await expired.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        expiredBody.ShouldContain("invalid or expired");
+        expiredBody.ShouldNotContain("already been used");
+    }
 }

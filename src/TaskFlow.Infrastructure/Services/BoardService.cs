@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore;
 namespace TaskFlow.Infrastructure.Services;
 
 /// <summary>Injects TaskFlowDbContext directly — no repository layer. Publishes card mutations to BoardHub's SignalR group so every open board view stays live.</summary>
-public class BoardService(TaskFlowDbContext db, BoardCache boardCache, IHubContext<BoardHub> hubContext) : IBoardService
+public class BoardService(TaskFlowDbContext db, BoardCache boardCache, IHubContext<BoardHub> hubContext, TimeProvider timeProvider) : IBoardService
 {
     public async Task<Result<BoardDto>> GetByIdAsync(Guid boardId, CancellationToken cancellationToken = default)
     {
@@ -119,7 +119,7 @@ public class BoardService(TaskFlowDbContext db, BoardCache boardCache, IHubConte
                 x.List.Name))
             .ToListAsync(cancellationToken);
 
-        var now = DateTime.UtcNow;
+        var now = timeProvider.GetUtcNow().UtcDateTime;
         return cards
             .OrderByDescending(c => c.DueDateUtc is not null && c.DueDateUtc < now && !c.CardListName.Equals("Done", StringComparison.OrdinalIgnoreCase))
             .ThenBy(c => c.DueDateUtc ?? DateTime.MaxValue)
